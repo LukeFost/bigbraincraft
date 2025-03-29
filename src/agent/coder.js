@@ -150,11 +150,13 @@ export class Coder {
         return res.message;
     }
 
-    async generateCodeLoop(agent_history) {
+    async generateCodeLoop(context) { // context is passed in correctly now
         this.agent.bot.modes.pause('unstuck');
 
-        let messages = agent_history.getHistory();
-        messages.push({role: 'system', content: 'Code generation started. Write code in codeblock in your response:'});
+        // Use a deep copy of the context to avoid modifying the original outside this loop
+        let loop_context = JSON.parse(JSON.stringify(context));
+        // Add the initial system message for the code generation loop
+        loop_context.push({role: 'system', content: 'Code generation started. Write code in codeblock in your response:'});
 
         let code = null;
         let code_return = null;
