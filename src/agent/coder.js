@@ -169,8 +169,9 @@ export class Coder {
             let contains_code = res.indexOf('```') !== -1;
             if (!contains_code) {
                 if (res.indexOf('!newAction') !== -1) {
-                    messages.push({
-                        role: 'assistant', 
+                    // Add assistant response to loop_context before retrying
+                    loop_context.push({
+                        role: 'assistant',
                         content: res.substring(0, res.indexOf('!newAction'))
                     });
                     continue; // using newaction will continue the loop
@@ -180,8 +181,8 @@ export class Coder {
                     console.warn("Action failed, agent would not write code.");
                     return { success: false, message: 'Action failed, agent would not write code.', interrupted: false, timedout: false };
                 }
-                messages.push({
-                    role: 'system', 
+                loop_context.push({
+                    role: 'system',
                     content: 'Error: no code provided. Write code in codeblock in your response. ``` // example ```'}
                 );
                 console.warn("No code block generated.");
