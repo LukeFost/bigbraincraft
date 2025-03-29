@@ -250,13 +250,13 @@ export class Prompter {
              // Ensure context is an array before using slice/find
              const messageList = Array.isArray(context) ? context : [];
              // --- Add logging here ---
-             // console.log("Searching for !newAction in messageList:", JSON.stringify(messageList, null, 2));
+             console.log("Searching for !newAction in messageList:", JSON.stringify(messageList, null, 2));
              // --- End logging ---
              const actionMsg = messageList.slice().reverse().find(msg =>
                  msg && msg.role !== 'system' && typeof msg.content === 'string' && msg.content.includes('!newAction(')
              );
              // --- Add logging here ---
-             // console.log("Found actionMsg:", actionMsg);
+             console.log("Found actionMsg:", actionMsg);
              // --- End logging ---
              // Safely extract content within parentheses, handling optional quotes
              code_task_content = actionMsg?.content?.match(/!newAction\("?([^"]*)"?\)/)?.[1] || '';
