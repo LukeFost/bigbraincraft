@@ -249,17 +249,16 @@ export class Prompter {
         if (prompt.includes('$EXAMPLES') && examples !== null)
             prompt = prompt.replaceAll('$EXAMPLES', await examples.createExampleMessage(messages));
 
-        // --- Conditional Memory Replacement ---
         if (prompt.includes('$MEMORY')) {
-            if (!settings.useOpenAIAgentMemory) {
+            if (settings.useOpenAIAgentMemory) {
+                // If using OpenAI Agent memory, the conversation history *is* the memory.
+                // Remove the placeholder or replace with an empty/informative string.
+                prompt = prompt.replaceAll('$MEMORY', ''); // Or potentially "Memory handled by agent context."
+            } else {
                 // Only include bot's summarized memory if NOT using OpenAI Agent memory
                 prompt = prompt.replaceAll('$MEMORY', this.agent.history.memory);
-            } else {
-                // If using OpenAI Agent memory, remove the placeholder or replace with empty/informative string
-                prompt = prompt.replaceAll('$MEMORY', ''); // Or potentially "Memory handled by agent context."
             }
         }
-        // --- End Conditional Memory Replacement ---
 
         if (prompt.includes('$TO_SUMMARIZE')) // This is for promptMemSaving, should still work
             prompt = prompt.replaceAll('$TO_SUMMARIZE', stringifyTurns(to_summarize));
@@ -270,23 +269,28 @@ export class Prompter {
             let self_prompt = !this.agent.self_prompter.isStopped() ? `YOUR CURRENT ASSIGNED GOAL: "${this.agent.self_prompter.prompt}"\n` : '';
             prompt = prompt.replaceAll('$SELF_PROMPT', self_prompt);
         }
-        if (prompt.includes('$LAST_GOALS')) {
+        if (prompt.includes('$LAST_GOALS') && last_goals) {
             let goal_text = '';
             for (let goal in last_goals) {
                 if (last_goals[goal])
-                    goal_text += `You recently successfully completed the goal ${goal}.\n`
+                    goal_text += `You recently successfully completed the goal ${goal}.\n`;
                 else
-                    goal_text += `You recently failed to complete the goal ${goal}.\n`
+                    goal_text += `You recently failed to complete the goal ${goal}.\n`;
             }
             prompt = prompt.replaceAll('$LAST_GOALS', goal_text.trim());
+        } else if (prompt.includes('$LAST_GOALS')) {
+             prompt = prompt.replaceAll('$LAST_GOALS', ''); // Remove placeholder if no last_goals provided
         }
+
         if (prompt.includes('$BLUEPRINTS')) {
-            if (this.agent.npc.constructions) {
+            if (this.agent.npc.constructions && Object.keys(this.agent.npc.constructions).length > 0) {
                 let blueprints = '';
                 for (let blueprint in this.agent.npc.constructions) {
                     blueprints += blueprint + ', ';
                 }
                 prompt = prompt.replaceAll('$BLUEPRINTS', blueprints.slice(0, -2));
+            } else {
+                 prompt = prompt.replaceAll('$BLUEPRINTS', 'None'); // Indicate no blueprints if object is empty/null
             }
         }
 

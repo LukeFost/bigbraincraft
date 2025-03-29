@@ -8,6 +8,7 @@ export class History {
         this.name = agent.name;
         this.memory_fp = `./bots/${this.name}/memory.json`;
         this.full_history_fp = undefined;
+        this.openaiAgentInputState = []; // Initialize OpenAI Agent state
 
         mkdirSync(`./bots/${this.name}/histories`, { recursive: true });
 
@@ -90,7 +91,7 @@ export class History {
 
             if (settings.useOpenAIAgentMemory) {
                 // Save OpenAI Agent state
-                data.openaiAgentInputState = this.agent.openaiAgentInputState;
+                data.openaiAgentInputState = this.openaiAgentInputState;
                 // Optionally clear or don't save bot memory fields
                 data.memory = '';
                 data.turns = [];
@@ -133,7 +134,7 @@ export class History {
 
             if (settings.useOpenAIAgentMemory) {
                 // Load OpenAI Agent state
-                this.agent.openaiAgentInputState = data.openaiAgentInputState || [];
+                this.openaiAgentInputState = data.openaiAgentInputState || [];
                 this.memory = ''; // Ensure bot memory is clear
                 this.turns = [];  // Ensure bot turns are clear
                 console.log('Loaded OpenAI Agent state.');
@@ -141,7 +142,7 @@ export class History {
                 // Load standard bot memory state
                 this.memory = data.memory || '';
                 this.turns = data.turns || [];
-                this.agent.openaiAgentInputState = []; // Ensure agent state is clear
+                this.openaiAgentInputState = []; // Ensure agent state is clear
                 console.log('Loaded standard bot memory:', this.memory);
             }
 
@@ -164,12 +165,10 @@ export class History {
     }
 
     clear() {
-        // Clear both states regardless of current mode
+        // Clear all relevant states regardless of current mode
         this.turns = [];
         this.memory = '';
-        if (this.agent) { // Check if agent exists (might be called early)
-             this.agent.openaiAgentInputState = [];
-        }
+        this.openaiAgentInputState = [];
         console.log("Cleared all memory states.");
     }
 }
