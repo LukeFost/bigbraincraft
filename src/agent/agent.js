@@ -172,11 +172,15 @@ export class Agent {
                 };
                 convoManager.receiveFromBot(this.last_sender, msg_package);
             }
+            } else if (init_message) {
+                await this.handleMessage('system', init_message, 2);
+            } else {
+                this.openChat("Hello world! I am " + this.name);
+            }
+        } else if (init_message) { // Handle case where load_mem is false but init_message exists
+             await this.handleMessage('system', init_message, 2);
         }
-        else if (init_message) {
-            await this.handleMessage('system', init_message, 2);
-        }
-        else {
+         else {
             this.openChat("Hello world! I am "+this.name);
         }
     }
@@ -218,7 +222,8 @@ export class Agent {
         const self_prompt = source === 'system' || source === this.name;
         const from_other_bot = convoManager.isOtherAgent(source);
 
-        if (!self_prompt && !from_other_bot) { // from user, check for forced commands
+        // --- User Command Handling (remains the same) ---
+        if (!self_prompt && !from_other_bot) {
             const user_command_name = containsCommand(message);
             if (user_command_name) {
                 if (!commandExists(user_command_name)) {
@@ -228,25 +233,31 @@ export class Agent {
                 this.routeResponse(source, `*${source} used ${user_command_name.substring(1)}*`);
                 if (user_command_name === '!newAction') {
                     // all user-initiated commands are ignored by the bot except for this one
-                    // add the preceding message to the history to give context for newAction
-                    this.history.add(source, message);
+                    // add the preceding message to the history/state to give context for newAction
+                    if (settings.useOpenAIAgentMemory) {
+                        this.openaiAgentInputState.push({ role: 'user', content: message });
+                    } else {
+                        this.history.add(source, message);
+                    }
                 }
                 let execute_res = await executeCommand(this, message);
-                if (execute_res) 
+                if (execute_res)
                     this.routeResponse(source, execute_res);
-                return true;
+                return true; // Return after executing user command
             }
         }
+        // --- End User Command Handling ---
 
         if (from_other_bot)
             this.last_sender = source;
 
-        // Now translate the message
+        // Translate message AFTER checking for user commands
         message = await handleEnglishTranslation(message);
         console.log('received message from', source, ':', message);
 
-        const checkInterrupt = () => this.self_prompter.shouldInterrupt(self_prompt) || this.shut_up || convoManager.responseScheduledFor(source);
-        
+        const checkInterrupt = () => this.self_prompter.shouldInterrupt(self_prompt) || this.shut_up || (from_other_bot && convoManager.responseScheduledFor(source));
+
+        // --- Behavior Log Handling (remains the same) ---
         let behavior_log = this.bot.modes.flushBehaviorLog();
         if (behavior_log.trim().length > 0) {
             const MAX_LOG = 500;
@@ -287,12 +298,15 @@ export class Agent {
             max_responses = 1; // force only respond to this message, then let self-prompting take over
         for (let i=0; i<max_responses; i++) {
             if (checkInterrupt()) break;
-            let history = this.history.getHistory();
-            let res = await this.prompter.promptConvo(history);
+
+            // --- LLM Prompting ---
+            // Pass the correct context based on the mode
+            let res = await this.prompter.promptConvo(current_context);
+            // --- End LLM Prompting ---
 
             console.log(`${this.name} full response to ${source}: ""${res}""`);
-            
-            if (res.trim().length === 0) { 
+
+            if (res.trim().length === 0) {
                 console.warn('no response')
                 break; // empty response ends loop
             }
