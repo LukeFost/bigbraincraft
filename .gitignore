@@ -16,3 +16,6 @@ services/viaproxy/viaproxy.yml
 tmp/
 wandb/
 experiments/
+.aider*
+.env
+.env.*

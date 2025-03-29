@@ -18,3 +18,16 @@ services:
       - "25568:25568"
     profiles:
       - viaproxy
+
+  openai_agent:
+    image: python:3.11
+    working_dir: /app
+    volumes:
+      - ./services/openai_agent:/app
+    command: bash -c "pip install uv && uv pip install -e . && python agent_server.py"
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    profiles:
+      - openai_agent

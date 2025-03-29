@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "minecraft-openai-agent"
+version = "0.1.0"
+authors = [
+  { name = "Your Name", email = "your.email@example.com" },
+]
+description = "OpenAI Agent server for Minecraft"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.104.0",
+  "uvicorn>=0.23.2",
+  "openai-agents>=0.1.0",
+  "pydantic>=2.4.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "black",
+  "isort",
+  "mypy",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["agent_server.py", "tools", "models"]
