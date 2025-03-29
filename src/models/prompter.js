@@ -236,16 +236,32 @@ export class Prompter {
         }
         if (prompt.includes('$COMMAND_DOCS'))
             prompt = prompt.replaceAll('$COMMAND_DOCS', getCommandDocs());
-        if (prompt.includes('$CODE_DOCS')) {
-            const code_task_content = messages.slice().reverse().find(msg =>
-                msg.role !== 'system' && msg.content.includes('!newAction(')
-            )?.content?.match(/!newAction\((.*?)\)/)?.[1] || '';
 
-            prompt = prompt.replaceAll(
-                '$CODE_DOCS',
-                await this.skill_libary.getRelevantSkillDocs(code_task_content, settings.relevant_docs_count)
-            );
+        // --- CODE_TASK and CODE_DOCS Handling ---
+        let code_task_content = ''; // Initialize outside the if block
+        if (prompt.includes('$CODE_DOCS') || prompt.includes('$CODE_TASK')) {
+             // Extract prompt from the *last* message containing !newAction
+             // Ensure messages is an array before using slice/find
+             const messageList = Array.isArray(messages) ? messages : [];
+             const actionMsg = messageList.slice().reverse().find(msg =>
+                 msg && msg.role !== 'system' && typeof msg.content === 'string' && msg.content.includes('!newAction(')
+             );
+             // Safely extract content within parentheses, handling optional quotes
+             code_task_content = actionMsg?.content?.match(/!newAction\("?([^"]*)"?\)/)?.[1] || '';
+
+             if (prompt.includes('$CODE_DOCS')) {
+                 prompt = prompt.replaceAll(
+                     '$CODE_DOCS',
+                     await this.skill_libary.getRelevantSkillDocs(code_task_content, settings.relevant_docs_count)
+                 );
+             }
+             // Replace the new $CODE_TASK placeholder
+             if (prompt.includes('$CODE_TASK')) {
+                 prompt = prompt.replaceAll('$CODE_TASK', code_task_content || 'No specific task provided in !newAction command.');
+             }
         }
+        // --- End CODE_TASK and CODE_DOCS Handling ---
+
         if (prompt.includes('$EXAMPLES') && examples !== null)
             prompt = prompt.replaceAll('$EXAMPLES', await examples.createExampleMessage(messages));
 
@@ -299,6 +315,8 @@ export class Prompter {
         if (remaining !== null) {
             // Filter out $MEMORY if it's expected to be missing
             remaining = remaining.filter(placeholder => !(settings.useOpenAIAgentMemory && placeholder === '$MEMORY'));
+           // Filter out $CODE_TASK if it was handled but the placeholder wasn't in the prompt string
+           remaining = remaining.filter(placeholder => !(placeholder === '$CODE_TASK' && code_task_content !== ''));
             if (remaining.length > 0) {
                 console.warn('Unknown prompt placeholders:', remaining.join(', '));
             }
