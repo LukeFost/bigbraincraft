@@ -220,7 +220,13 @@ export class Prompter {
         }
     }
 
-    async replaceStrings(prompt, messages, examples=null, to_summarize=[], last_goals=null) {
+    async replaceStrings(prompt, context, examples=null, to_summarize=[], last_goals=null) { // Renamed 'messages' to 'context' for clarity
+        // --- Add logging here ---
+        // console.log("--- replaceStrings called ---");
+        // console.log("Original prompt template:\n", prompt);
+        // console.log("Context received:", JSON.stringify(context, null, 2));
+        // --- End logging ---
+
         prompt = prompt.replaceAll('$NAME', this.agent.name);
 
         if (prompt.includes('$STATS')) {
@@ -335,6 +341,13 @@ export class Prompter {
                 console.warn('Unknown prompt placeholders:', remaining.join(', '));
             }
         }
+
+        // --- Add logging here ---
+        if (prompt.includes('TASK:')) { // Only log the final prompt if it's for coding
+             console.log("Final prompt being returned for coding:\n", prompt); // <<< KEEP THIS LOG
+        }
+        // console.log("--- replaceStrings finished ---");
+        // --- End logging ---
         return prompt;
     }
 
