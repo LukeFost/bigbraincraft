@@ -19,6 +19,7 @@ export class Agent {
     async start(profile_fp, load_mem=false, init_message=null, count_id=0, task_path=null, task_id=null) {
         this.last_sender = null;
         this.count_id = count_id;
+        this.openaiAgentInputState = []; // Initialize OpenAI Agent state
         if (!profile_fp) {
             throw new Error('No profile filepath provided');
         }
@@ -32,7 +33,7 @@ export class Agent {
         this.prompter = new Prompter(this, profile_fp);
         this.name = this.prompter.getName();
         console.log('Initializing history...');
-        this.history = new History(this);
+        this.history = new History(this); // History needs access to agent for the new state
         console.log('Initializing coder...');
         this.coder = new Coder(this);
         console.log('Initializing npc controller...');
@@ -58,7 +59,7 @@ export class Agent {
 
         let save_data = null;
         if (load_mem) {
-            save_data = this.history.load();
+            save_data = this.history.load(); // history.load now handles the toggle internally
         }
 
         this.bot.on('login', () => {
@@ -146,13 +147,23 @@ export class Agent {
             bannedFood: ["rotten_flesh", "spider_eye", "poisonous_potato", "pufferfish", "chicken"]
         };
 
-        if (save_data?.self_prompt) {
-            if (init_message) {
-                this.history.add('system', init_message);
+        // MODIFY loading logic
+        if (save_data) { // save_data comes from history.load() which now handles the toggle
+            if (settings.useOpenAIAgentMemory) {
+                console.log("Loaded OpenAI Agent state.");
+                // openaiAgentInputState is loaded within history.load()
+            } else {
+                console.log("Loaded standard bot memory.");
+                // turns and memory are loaded within history.load()
             }
-            await this.self_prompter.handleLoad(save_data.self_prompt, save_data.self_prompting_state);
-        }
-        if (save_data?.last_sender) {
+
+            if (save_data?.self_prompt) {
+                if (init_message && !settings.useOpenAIAgentMemory) { // Only add init_message to history if not using agent memory
+                    this.history.add('system', init_message);
+                }
+                await this.self_prompter.handleLoad(save_data.self_prompt, save_data.self_prompting_state);
+            }
+            if (save_data?.last_sender) {
             this.last_sender = save_data.last_sender;
             if (convoManager.otherAgentInGame(this.last_sender)) {
                 const msg_package = {
@@ -243,12 +254,34 @@ export class Agent {
                 behavior_log = '...' + behavior_log.substring(behavior_log.length - MAX_LOG);
             }
             behavior_log = 'Recent behaviors log: \n' + behavior_log.substring(behavior_log.indexOf('\n'));
-            await this.history.add('system', behavior_log);
+            // Add behavior log based on memory mode
+            if (settings.useOpenAIAgentMemory) {
+                 this.openaiAgentInputState.push({ role: 'user', content: 'SYSTEM: ' + behavior_log }); // Treat system messages as user input for OpenAI Agent pattern
+            } else {
+                await this.history.add('system', behavior_log);
+            }
         }
+        // --- End Behavior Log Handling ---
 
-        // Handle other user messages
-        await this.history.add(source, message);
-        this.history.save();
+        // --- Add Incoming Message to Correct State ---
+        let current_context;
+        if (settings.useOpenAIAgentMemory) {
+            let role = 'user'; // Default role for OpenAI Agent pattern
+            let content = message;
+            if (source === 'system') {
+                 content = 'SYSTEM: ' + message; // Prefix system messages
+            } else if (from_other_bot) {
+                 content = `${source}: ${message}`; // Prefix messages from other bots
+            }
+            this.openaiAgentInputState.push({ role, content });
+            current_context = JSON.parse(JSON.stringify(this.openaiAgentInputState)); // Use a copy for prompting
+        } else {
+            await this.history.add(source, message);
+            current_context = this.history.getHistory(); // Use history turns for prompting
+        }
+        // --- End Add Incoming Message ---
+
+        this.history.save(); // Save the current state (handles toggle internally)
 
         if (!self_prompt && this.self_prompter.isActive()) // message is from user during self-prompting
             max_responses = 1; // force only respond to this message, then let self-prompting take over
@@ -266,47 +299,83 @@ export class Agent {
 
             let command_name = containsCommand(res);
 
+            // --- Add Bot Response to Correct State ---
+            let bot_response_content = res;
+            if (command_name) {
+                bot_response_content = truncCommandMessage(res); // Store only up to the command
+            }
+
+            if (settings.useOpenAIAgentMemory) {
+                this.openaiAgentInputState.push({ role: 'assistant', content: bot_response_content });
+                // Update current_context if we loop again (though unlikely with current command logic)
+                current_context = JSON.parse(JSON.stringify(this.openaiAgentInputState));
+            } else {
+                 // Add to history only if it's not a command (commands add their own system feedback)
+                 if (!command_name) {
+                    this.history.add(this.name, bot_response_content);
+                 } else if (settings.verbose_commands) {
+                     // If verbose, add the command message itself to history
+                     this.history.add(this.name, bot_response_content);
+                 }
+                 // Update current_context if we loop again
+                 current_context = this.history.getHistory();
+            }
+             // --- End Add Bot Response ---
+
+
             if (command_name) { // contains query or command
-                res = truncCommandMessage(res); // everything after the command is ignored
-                this.history.add(this.name, res);
-                
+                // --- Command Execution Logic (largely unchanged, but history adding is handled above/below) ---
                 if (!commandExists(command_name)) {
-                    this.history.add('system', `Command ${command_name} does not exist.`);
+                    const errorMsg = `Command ${command_name} does not exist.`;
+                    if (settings.useOpenAIAgentMemory) {
+                        this.openaiAgentInputState.push({ role: 'user', content: 'SYSTEM: ' + errorMsg });
+                    } else {
+                        this.history.add('system', errorMsg);
+                    }
                     console.warn('Agent hallucinated command:', command_name)
-                    continue;
+                    continue; // Continue loop to let agent retry
                 }
 
                 if (checkInterrupt()) break;
                 this.self_prompter.handleUserPromptedCmd(self_prompt, isAction(command_name));
 
+                // Route command confirmation message
                 if (settings.verbose_commands) {
-                    this.routeResponse(source, res);
-                }
-                else { // only output command name
+                    this.routeResponse(source, bot_response_content); // Already added to state above
+                } else { // only output command name
                     let pre_message = res.substring(0, res.indexOf(command_name)).trim();
                     let chat_message = `*used ${command_name.substring(1)}*`;
                     if (pre_message.length > 0)
                         chat_message = `${pre_message}  ${chat_message}`;
                     this.routeResponse(source, chat_message);
+                    // If not verbose, the command itself wasn't added to history/state above, which is fine.
                 }
 
-                let execute_res = await executeCommand(this, res);
-
+                let execute_res = await executeCommand(this, res); // Pass the original full response `res`
                 console.log('Agent executed:', command_name, 'and got:', execute_res);
                 used_command = true;
 
-                if (execute_res)
-                    this.history.add('system', execute_res);
-                else
-                    break;
-            }
-            else { // conversation response
-                this.history.add(this.name, res);
+                // Add command result to correct state
+                if (execute_res) {
+                     if (settings.useOpenAIAgentMemory) {
+                         this.openaiAgentInputState.push({ role: 'user', content: 'SYSTEM: ' + execute_res });
+                         current_context = JSON.parse(JSON.stringify(this.openaiAgentInputState)); // Update context for potential next loop
+                     } else {
+                         this.history.add('system', execute_res);
+                         current_context = this.history.getHistory(); // Update context for potential next loop
+                     }
+                } else {
+                     break; // Break loop if command execution had no result (or was !stop etc.)
+                }
+                // --- End Command Execution Logic ---
+
+            } else { // conversation response
+                // State already updated above
                 this.routeResponse(source, res);
-                break;
+                break; // End loop after a conversational response
             }
-            
-            this.history.save();
+
+            this.history.save(); // Save state after each command execution within the loop
         }
 
         return used_command;

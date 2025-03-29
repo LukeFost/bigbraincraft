@@ -248,9 +248,20 @@ export class Prompter {
         }
         if (prompt.includes('$EXAMPLES') && examples !== null)
             prompt = prompt.replaceAll('$EXAMPLES', await examples.createExampleMessage(messages));
-        if (prompt.includes('$MEMORY'))
-            prompt = prompt.replaceAll('$MEMORY', this.agent.history.memory);
-        if (prompt.includes('$TO_SUMMARIZE'))
+
+        // --- Conditional Memory Replacement ---
+        if (prompt.includes('$MEMORY')) {
+            if (!settings.useOpenAIAgentMemory) {
+                // Only include bot's summarized memory if NOT using OpenAI Agent memory
+                prompt = prompt.replaceAll('$MEMORY', this.agent.history.memory);
+            } else {
+                // If using OpenAI Agent memory, remove the placeholder or replace with empty/informative string
+                prompt = prompt.replaceAll('$MEMORY', ''); // Or potentially "Memory handled by agent context."
+            }
+        }
+        // --- End Conditional Memory Replacement ---
+
+        if (prompt.includes('$TO_SUMMARIZE')) // This is for promptMemSaving, should still work
             prompt = prompt.replaceAll('$TO_SUMMARIZE', stringifyTurns(to_summarize));
         if (prompt.includes('$CONVO'))
             prompt = prompt.replaceAll('$CONVO', 'Recent conversation:\n' + stringifyTurns(messages));
@@ -282,7 +293,11 @@ export class Prompter {
         // check if there are any remaining placeholders with syntax $<word>
         let remaining = prompt.match(/\$[A-Z_]+/g);
         if (remaining !== null) {
-            console.warn('Unknown prompt placeholders:', remaining.join(', '));
+            // Filter out $MEMORY if it's expected to be missing
+            remaining = remaining.filter(placeholder => !(settings.useOpenAIAgentMemory && placeholder === '$MEMORY'));
+            if (remaining.length > 0) {
+                console.warn('Unknown prompt placeholders:', remaining.join(', '));
+            }
         }
         return prompt;
     }
