@@ -217,11 +217,13 @@ export class Coder {
                 return { success: true, message: summary, interrupted: false, timedout: false };
             }
 
-            messages.push({
+            // Add assistant response (containing the code) to loop_context
+            loop_context.push({
                 role: 'assistant',
                 content: res
             });
-            messages.push({
+            // Add system feedback (code execution result) to loop_context
+            loop_context.push({
                 role: 'system',
                 content: code_return.message + '\nCode failed. Please try again:'
             });
